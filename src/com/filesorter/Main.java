@@ -22,10 +22,14 @@ public class Main {
 
         switch (command) {
             case "rule":
-                if (args.length == 4 && args[1].equalsIgnoreCase("add")) {
-                    repo.addRule(args[2], args[3]); // rule add .pdf Documents
+                if (args.length == 2 && args[1].equalsIgnoreCase("list")) {
+                    repo.listRules();
+                } else if (args.length == 4 && args[1].equalsIgnoreCase("add")) {
+                    repo.addRule(args[2], args[3]);
                 } else {
-                    System.out.println("Usage: rule add <.extension> <DirectoryName>");
+                    System.out.println("Usage:");
+                    System.out.println("  rule add <.ext> <dir>");
+                    System.out.println("  rule list");
                 }
                 break;
             case "tag":

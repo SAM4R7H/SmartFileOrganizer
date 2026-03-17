@@ -88,4 +88,32 @@ public class DataRepository {
             e.printStackTrace();
         }
     }
-}
+
+    public void listRules() {
+        String sql = "SELECT file_extension, target_directory FROM rules ORDER BY file_extension";
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement pstmt = conn.prepareStatement(sql);
+             ResultSet rs = pstmt.executeQuery()) {
+
+            System.out.println("\n📋 Active Sorting Rules:");
+            System.out.println("-----------------------------------");
+            System.out.printf("%-15s | %-15s%n", "Extension", "Target Directory");
+            System.out.println("-----------------------------------");
+
+            boolean hasRules = false;
+            while (rs.next()) {
+                hasRules = true;
+                System.out.printf("%-15s | %-15s%n",
+                    rs.getString("file_extension"),
+                    rs.getString("target_directory"));
+            }
+
+            if (!hasRules) System.out.println("  No rules found. Add one first!");
+            System.out.println("-----------------------------------\n");
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+
+}  // ← single closing brace for the entire class

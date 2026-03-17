@@ -37,83 +37,84 @@ public class SortingEngine {
     }
 
     private void processFile(Path file, Path rootDir, int batchId) {
-        try {
-            String hash = calculateSHA256(file);
-            if (handleDuplicate(file, hash)) return; // Skip if user deleted it or chose to skip
+    try {
+        String hash = calculateSHA256(file);
+        Path resolvedFile = handleDuplicate(file, hash); // ← now returns a Path
+        if (resolvedFile == null) return; // deleted or skipped
 
-            String fileName = file.getFileName().toString();
-            String ext = getExtension(fileName);
-            
-            String ruleDir = repo.getRuleDirectory(ext);
-            List<String> tags = repo.getTagsForFile(file.toAbsolutePath().toString());
-            String targetDirName = null;
+        String fileName = resolvedFile.getFileName().toString(); // ← use resolved path
+        String ext = getExtension(fileName);
 
-            // Conflict resolution: Rule vs Tag
-            if (ruleDir != null && !tags.isEmpty()) {
-                System.out.println("⚠️ Conflict for " + fileName + ": Rule (" + ruleDir + ") OR Tag (" + tags.get(0) + ")?");
-                System.out.print("Type [r] for rule, [t] for tag: ");
-                String choice = scanner.nextLine().trim().toLowerCase();
-                targetDirName = choice.equals("t") ? tags.get(0) : ruleDir;
-            } else if (!tags.isEmpty()) {
-                targetDirName = tags.get(0); // Use first tag as folder name
-            } else if (ruleDir != null) {
-                targetDirName = ruleDir;
-            }
+        String ruleDir = repo.getRuleDirectory(ext);
+        List<String> tags = repo.getTagsForFile(resolvedFile.toAbsolutePath().toString());
+        String targetDirName = null;
 
-            if (targetDirName != null) {
-                Path targetPath = rootDir.resolve(targetDirName).resolve(fileName);
-                Files.createDirectories(targetPath.getParent());
-                Files.move(file, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                repo.logAction(batchId, file.toAbsolutePath().toString(), targetPath.toAbsolutePath().toString());
-                System.out.println("📂 Moved: " + fileName + " -> " + targetDirName + "/");
-            }
-
-        } catch (Exception e) {
-            System.out.println("❌ Error processing " + file.getFileName() + ": " + e.getMessage());
+        if (ruleDir != null && !tags.isEmpty()) {
+            System.out.println("⚠️ Conflict for " + fileName + ": Rule (" + ruleDir + ") OR Tag (" + tags.get(0) + ")?");
+            System.out.print("Type [r] for rule, [t] for tag: ");
+            String choice = scanner.nextLine().trim().toLowerCase();
+            targetDirName = choice.equals("t") ? tags.get(0) : ruleDir;
+        } else if (!tags.isEmpty()) {
+            targetDirName = tags.get(0);
+        } else if (ruleDir != null) {
+            targetDirName = ruleDir;
         }
-    }
 
-    private boolean handleDuplicate(Path file, String hash) throws Exception {
-        String sql = "SELECT file_path FROM file_metadata WHERE sha256_hash = ?";
-        try (Connection conn = DatabaseManager.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, hash);
-            ResultSet rs = pstmt.executeQuery();
-            
-            if (rs.next()) {
-                String existing = rs.getString("file_path");
-                System.out.println("👯 Duplicate detected: " + file.getFileName());
-                System.out.println("   Matches existing file: " + existing);
-                System.out.print("   [d]elete, [r]ename with _copy1, or [s]kip? ");
-                String choice = scanner.nextLine().trim().toLowerCase();
-                
-                if (choice.equals("d")) {
-                    Files.delete(file);
-                    System.out.println("🗑️ Deleted duplicate.");
-                    return true;
-                } else if (choice.equals("r")) {
-                    String newName = file.getFileName().toString().replaceFirst("(\\.[^.]*)?$", "_copy1$1");
-                    Path newPath = file.resolveSibling(newName);
-                    Files.move(file, newPath);
-                    System.out.println("📝 Renamed to " + newName);
-                    return false; // Continue sorting with new name
-                } else {
-                    return true; // Skip
-                }
+        if (targetDirName != null) {
+            Path targetPath = rootDir.resolve(targetDirName).resolve(fileName);
+            Files.createDirectories(targetPath.getParent());
+            Files.move(resolvedFile, targetPath, StandardCopyOption.REPLACE_EXISTING); // ← resolved
+            repo.logAction(batchId, resolvedFile.toAbsolutePath().toString(), targetPath.toAbsolutePath().toString());
+            System.out.println("📂 Moved: " + fileName + " -> " + targetDirName + "/");
+        }
+
+    } catch (Exception e) {
+        System.out.println("❌ Error processing " + file.getFileName() + ": " + e.getMessage());
+    }
+}
+
+// Returns: null = skip/delete, otherwise the Path to sort (original or renamed)
+private Path handleDuplicate(Path file, String hash) throws Exception {
+    String sql = "SELECT file_path FROM file_metadata WHERE sha256_hash = ?";
+    try (Connection conn = DatabaseManager.getConnection();
+         PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        pstmt.setString(1, hash);
+        ResultSet rs = pstmt.executeQuery();
+
+        if (rs.next()) {
+            String existing = rs.getString("file_path");
+            System.out.println("👯 Duplicate detected: " + file.getFileName());
+            System.out.println("   Matches existing file: " + existing);
+            System.out.print("   [d]elete, [r]ename with _copy1, or [s]kip? ");
+            String choice = scanner.nextLine().trim().toLowerCase();
+
+            if (choice.equals("d")) {
+                Files.delete(file);
+                System.out.println("🗑️  Deleted duplicate.");
+                return null; // signal: skip this file
+            } else if (choice.equals("r")) {
+                String newName = file.getFileName().toString().replaceFirst("(\\.[^.]*)?$", "_copy1$1");
+                Path newPath = file.resolveSibling(newName);
+                Files.move(file, newPath);
+                System.out.println("📝 Renamed to " + newName);
+                return newPath; // ← return the NEW path, not the old one
             } else {
-                // Save new metadata
-                String insertSql = "INSERT INTO file_metadata (file_path, file_name, extension, sha256_hash) VALUES (?, ?, ?, ?)";
-                try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-                    insertStmt.setString(1, file.toAbsolutePath().toString());
-                    insertStmt.setString(2, file.getFileName().toString());
-                    insertStmt.setString(3, getExtension(file.getFileName().toString()));
-                    insertStmt.setString(4, hash);
-                    insertStmt.executeUpdate();
-                }
+                return null; // skip
             }
+        } else {
+            // No duplicate — register in metadata and continue
+            String insertSql = "INSERT INTO file_metadata (file_path, file_name, extension, sha256_hash) VALUES (?, ?, ?, ?)";
+            try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                insertStmt.setString(1, file.toAbsolutePath().toString());
+                insertStmt.setString(2, file.getFileName().toString());
+                insertStmt.setString(3, getExtension(file.getFileName().toString()));
+                insertStmt.setString(4, hash);
+                insertStmt.executeUpdate();
+            }
+            return file; // ← normal case: return original path
         }
-        return false;
     }
+}
 
     private String calculateSHA256(Path file) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");

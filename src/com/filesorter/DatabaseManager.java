@@ -6,7 +6,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 public class DatabaseManager {
-    private static final String URL = "jdbc:sqlite:filesorter.db";
+    private static final String URL = "jdbc:sqlite:" +
+            System.getProperty("user.home") + "/SmartFileOrganizer/filesorter.db"; // ← fixed
 
     public static Connection getConnection() throws SQLException {
         return DriverManager.getConnection(URL);
