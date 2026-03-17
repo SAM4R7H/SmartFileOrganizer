@@ -1,2 +1,5 @@
+*.class
 bin/
+filesorter.db
+TestFolder/
 *.db
